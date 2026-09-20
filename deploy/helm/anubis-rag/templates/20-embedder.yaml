@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedder
+  namespace: {{ .Values.namespace }}
+spec:
+  selector: { app: embedder }
+  ports: [{ name: http, port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.embedder.replicas }}
+  selector: { matchLabels: { app: embedder } }
+  template:
+    metadata:
+      labels: { app: embedder }
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.gpu.runtimeClassName }}
+      runtimeClassName: {{ .Values.gpu.runtimeClassName }}
+      {{- end }}
+      {{- with .Values.gpu.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: embedder
+          image: {{ include "img.embedder" . }}
+          ports: [{ containerPort: 8080 }]
+          env:
+            - { name: EMBED_MODEL, value: {{ .Values.embedder.model | quote }} }
+          resources:
+            limits:
+              {{ .Values.gpu.resourceKey }}: {{ .Values.gpu.resourceCount }}
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5

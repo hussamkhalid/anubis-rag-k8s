@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+__pycache__/
+*.pyc
+.env
+*.local
+.DS_Store
+values-*.local.yaml
+secrets*.yaml

@@ -1,0 +1,72 @@
+# ── Global ──
+namespace: anubis-rag
+imagePullSecrets: []          # e.g. [{ name: ghcr }]
+registry: ghcr.io/hussamkhalid
+
+images:
+  ragApi:   { repo: anubis-rag-api,  tag: latest }
+  embedder: { repo: anubis-rag-embedder, tag: latest }
+  ingest:   { repo: anubis-rag-ingest,   tag: latest }
+  ui:       { repo: anubis-rag-ui,       tag: latest }
+  qdrant:   { repo: qdrant/qdrant, tag: "v1.16.3", fullRepo: true }   # match on-disk format
+
+# ── GPU scheduling for the embedder + ingest Jobs ──
+gpu:
+  nodeSelector: { }           # e.g. { nvidia.com/gpu.present: "true" } or a custom label
+  # If your device plugin exposes nvidia.com/gpu, request one:
+  resourceKey: nvidia.com/gpu
+  resourceCount: 1
+  runtimeClassName: ""        # e.g. "nvidia" if the cluster uses RuntimeClass
+
+# ── Storage ──
+storage:
+  qdrant:
+    className: local-path     # k3s default (RWO). Qdrant is a single pod -> RWO is fine.
+    size: 20Gi
+  uploads:
+    className: local-path     # RECOMMEND an RWX class (nfs) so API + Job co-mount freely.
+    accessMode: ReadWriteOnce # set ReadWriteMany if className is RWX (nfs/longhorn)
+    size: 10Gi
+
+# ── RAG API ──
+ragApi:
+  replicas: 1                 # keep 1 unless uploads PVC is RWX
+  env:
+    COLLECTION_NAME: anubis_rag_chunks
+    TOP_K: "4"
+    CONTEXT_TOP_K: "25"
+    MIN_SCORE: "0.55"
+    LLM_API_FORMAT: openai
+    LLM_TEMPERATURE: "0.2"
+    LLM_MAX_TOKENS: "256"
+    EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
+
+# ── Embedder (GPU) ──
+embedder:
+  replicas: 1
+  model: BAAI/bge-base-en-v1.5
+
+# ── UI ──
+ui:
+  replicas: 1
+
+# ── External answer-LLM (out of cluster: .14 / .15) ──
+externalLLM:
+  host: 192.168.70.14         # llama.cpp sidecar host
+  port: 8080
+
+# ── Ingress (k3s Traefik) ──
+ingress:
+  enabled: true
+  className: traefik
+  host: rag.anubis.local
+  tls:
+    enabled: false
+    secretName: ""
+
+# ── Secrets (SET THESE; do not commit real values) ──
+secrets:
+  anubisApiToken: "CHANGE-ME-machine-token"
+  jwtSecret: "CHANGE-ME-long-random-string"
+  uiUserPassword: "CHANGE-ME-user"
+  uiAdminPassword: "CHANGE-ME-admin"

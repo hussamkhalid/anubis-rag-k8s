@@ -1,0 +1,6 @@
+# No torch here — embedding is remote. Just parsers + qdrant client.
+qdrant-client==1.16.2
+requests==2.32.5
+PyMuPDF==1.26.7
+python-docx==1.2.0
+openpyxl==3.1.5

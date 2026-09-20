@@ -1,0 +1,11 @@
+# Pinned to the versions proven on the anubis-rag VM (.17) so vectors are
+# byte-for-byte the same model as the existing collection (bge-base, 768-dim).
+--extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.7.1
+numpy==1.26.4
+transformers==4.30.2
+huggingface_hub==0.16.4
+sentence-transformers==2.2.2
+fastapi==0.128.0
+uvicorn==0.40.0
+pydantic==2.12.5

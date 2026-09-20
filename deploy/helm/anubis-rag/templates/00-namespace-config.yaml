@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels: { {{- include "anubis-rag.labels" . | nindent 4 }} }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-api-config
+  namespace: {{ .Values.namespace }}
+data:
+  QDRANT_URL: "http://qdrant:6333"
+  EMBED_URL: "http://embedder:8080"
+  LLM_COMPLETION_URL: "http://llm-external:{{ .Values.externalLLM.port }}/v1/chat/completions"
+  INGEST_IMAGE: "{{ include "img.ingest" . }}"
+  INGEST_NAMESPACE: "{{ .Values.namespace }}"
+  INGEST_UPLOADS_PVC: "anubis-rag-uploads"
+  INGEST_SERVICE_ACCOUNT: "anubis-rag-ingest"
+  UPLOADS_DIR: "/uploads"
+{{- if and .Values.gpu.nodeSelector (gt (len .Values.gpu.nodeSelector) 0) }}
+  INGEST_GPU_NODE_SELECTOR: "{{- range $k, $v := .Values.gpu.nodeSelector }}{{ $k }}={{ $v }}{{- end }}"
+{{- end }}
+{{- range $k, $v := .Values.ragApi.env }}
+  {{ $k }}: {{ $v | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-api-secrets
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  ANUBIS_API_TOKEN: {{ .Values.secrets.anubisApiToken | quote }}
+  JWT_SECRET: {{ .Values.secrets.jwtSecret | quote }}
+  UI_USER_PASSWORD: {{ .Values.secrets.uiUserPassword | quote }}
+  UI_ADMIN_PASSWORD: {{ .Values.secrets.uiAdminPassword | quote }}

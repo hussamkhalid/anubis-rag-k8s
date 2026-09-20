@@ -1,0 +1,121 @@
+# Shared uploads PVC — mounted by the RAG API (writes uploads) and by each
+# ingestion Job (reads them). With an RWX class (nfs/longhorn) the API can scale
+# and Jobs can land on any node; with RWO (local-path) keep replicas=1 and pin
+# Jobs to the same node via gpu.nodeSelector.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: anubis-rag-uploads
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes: ["{{ .Values.storage.uploads.accessMode }}"]
+  storageClassName: {{ .Values.storage.uploads.className }}
+  resources: { requests: { storage: {{ .Values.storage.uploads.size }} } }
+---
+# ServiceAccount + Role so the RAG API can create/list ingestion Jobs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: anubis-rag-ingest
+  namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: anubis-rag-ingest
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: anubis-rag-ingest
+  namespace: {{ .Values.namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: anubis-rag-ingest
+    namespace: {{ .Values.namespace }}
+roleRef:
+  kind: Role
+  name: anubis-rag-ingest
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-api
+  namespace: {{ .Values.namespace }}
+spec:
+  selector: { app: rag-api }
+  ports: [{ name: http, port: 8000, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.ragApi.replicas }}
+  selector: { matchLabels: { app: rag-api } }
+  template:
+    metadata:
+      labels: { app: rag-api }
+    spec:
+      serviceAccountName: anubis-rag-ingest
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq .Values.storage.uploads.accessMode "ReadWriteOnce" }}
+      {{- with .Values.gpu.nodeSelector }}
+      # RWO uploads: co-locate the API with the ingest Jobs' node so both mount the PVC.
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      containers:
+        - name: rag-api
+          image: {{ include "img.ragApi" . }}
+          ports: [{ containerPort: 8000 }]
+          envFrom:
+            - configMapRef: { name: rag-api-config }
+            - secretRef: { name: rag-api-secrets }
+          volumeMounts:
+            - { name: uploads, mountPath: /uploads }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: { claimName: anubis-rag-uploads }
+---
+# External answer-LLM (.14/.15) reachable in-cluster as "llm-external".
+# ExternalName only accepts DNS names, so for an IP target we use a selectorless
+# Service + a matching Endpoints object.
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-external
+  namespace: {{ .Values.namespace }}
+spec:
+  ports:
+    - name: http
+      port: {{ .Values.externalLLM.port }}
+      targetPort: {{ .Values.externalLLM.port }}
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: llm-external
+  namespace: {{ .Values.namespace }}
+subsets:
+  - addresses:
+      - ip: {{ .Values.externalLLM.host | quote }}
+    ports:
+      - name: http
+        port: {{ .Values.externalLLM.port }}
